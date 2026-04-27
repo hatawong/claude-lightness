@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Node (若引入)
+node_modules/
+
+# Logs
+*.log
+
+# claude-lightness register 产物 (用户 clone 后 register 才生成, 含绝对路径, 不入仓库)
+.claude/
+
+# 临时
+*.tmp
+*.bak
+/tmp/
