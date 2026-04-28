@@ -1,184 +1,279 @@
-# 指挥官给验收者写任务的指南
+# 指挥官给验收者写任务的指南 (R64 风格)
 
 > 读者: **指挥官 (commander)** — 在多 Agent 协作中给验收者 (reviewer) 派 task 的角色
-> 前置: 先读 [04-multi-agent.md](04-multi-agent.md) (多 Agent 协作框架) + [agents/reviewer/ACTOR.md](../../agents/reviewer/ACTOR.md) (验收者本身的角色定义)
+> 前置: 先读 [04-multi-agent.md](04-multi-agent.md) (多 Agent 协作框架) + [agents/reviewer/ACTOR.md](../../agents/reviewer/ACTOR.md) (验收者本身的角色定义) + [actor-guide-developer.md](actor-guide-developer.md) (R64 工作流总骨架)
 
 ---
 
 ## 用途
 
-任务 prompt 用 **role / why / what / how** 四字段 (+ 可选 `deps / optDeps`) 描述, 由指挥官写给验收者执行。本文档约定 **验收者角色** 这些字段的填写规范。
+R64 工作流是**文件级异步通信** + **冷读验证** + (可选) **多 LLM 并行 review** 的验收者协作模板。
 
-**注**: 字段载体 (JSON / Markdown / 别的) 由项目定, 本文档只约束**字段内容**怎么写。
+跟 [actor-guide-developer.md](actor-guide-developer.md) (R64 开发者) 的差异:
 
----
-
-## 验收者是谁
-
-验收者负责**验收**——冷读其他 Actor 的产出（report、代码、session JSONL），逐项检查是否符合 prompt 要求，输出验收报告。
-
-验收者**只做验收，不做修改**——发现问题写在 report 里，由指挥官或调度者决定下一步。验收者不改代码、不改文档、不执行任何修改操作。
-
----
-
-## WHY 怎么写
-
-> 任务 prompt 的 WHY 回答：**为什么需要验收**。
-
-规则：
-1. **写因果链，不压缩**——从背景到当前状态到为什么需要验收，每一步都写清楚
-2. **不相关的历史主动排除**——显式写「你不需要了解 X，按需查阅弱依赖即可」
-3. **站在新人的视角**——假设 Actor 对这个任务的背景一无所知
-
-重点：说清楚**被验收的 Actor 做了什么，有什么潜在风险需要检查**。
-
-示例（好）：
-```
-开发者-18 完成了 task 快照集中存储的重构（99/99 测试通过）。这次改动涉及 EngineContext 字段删除、
-server 存储路径变更、内存管理逻辑重写，影响面大。需要验收代码是否正确对齐设计文档，测试覆盖是否充分。
-```
-
-示例（差）：
-```
-验收开发者-18 的代码。
-```
+| 维度 | 开发者 | 验收者 |
+|---|---|---|
+| 步骤数 | 5 步 (含 step4-proposal) | 4 步 (无 proposal, 验收 → 报告) |
+| 输出 | 代码 + commit + report | 仅验收报告 (问题清单 + 证据) |
+| 模式 | 实施 (改东西) | 冷读 (不改任何东西) |
+| 上下文 | 带历史 round context | 完全冷读 (不依赖记忆) |
+| 增强 | (无) | 多 LLM 并行 review (推荐, 见 [code-review-guide.md](code-review-guide.md)) |
 
 ---
 
-## WHAT 怎么写
+## 任务文件结构
 
-> 任务 prompt 的 WHAT 回答：**验收什么、怎么判定通过**。
+一个验收 round 对应一个目录:
 
-**验收点列表**：编号列表，每条是一个具体的检查项。验收点应该来自被验收 Actor 的 prompt 中的交付物——prompt 要求交付什么，验收者就逐项检查什么。
-
-**最后一条永远是「流程遵守」**：被验收的 Actor 是否遵守了 prompt 要求的文件通信机制、raise 协议、report 格式。
-
-示例（好）：
 ```
-逐项验收开发者-18 的重构产出：
-
-验收点：
-1. projectDir/taskDir 是否正确从 EngineContext 独立字段移入 task.meta
-2. 快照路径是否从 {taskDir}/.tasks/ 改为 ~/.aos/tasks/
-3. 完成后是否从内存清除，task.get 是否改为读文件
-4. 测试是否用 AOS_HOME 环境变量隔离，不污染真实环境
-5. 流程遵守：开发者是否按 prompt 要求的步骤执行，report 格式是否规范
+docs/design/round-<N>/   (复用开发者 round 目录, 验收紧跟 report 之后)
+├── 开发者-<N>-plan.md           # 被验收对象的任务定义 (验收者必读)
+├── 开发者-<N>-report.md         # 被验收对象的产出报告 (验收者必读)
+├── 验收者-<N>-plan.md           # 指挥官手写, 验收任务定义
+├── 验收者-<N>-raise.md          # 验收者写 (Step 3, 可选), 验收前的歧义 raise
+├── 验收者-<N>-reply.md          # 指挥官回 (Step 3 后)
+└── 验收者-<N>-report.md         # 验收者写 (Step 4), 验收报告 (问题清单 + 证据)
 ```
 
-示例（差）：
+如做多 LLM 并行 review:
+
 ```
-检查代码是否正确。
+├── 开发者-<N>-code-review.md         # 指挥官写, code review prompt (供多 LLM 用)
+├── 开发者-<N>-code-review-codex-X.X.md  # Codex (GPT-5.X) 输出
+├── 开发者-<N>-code-review-gpt-X.X.md    # GPT-5.X 输出 (多版本)
+├── 开发者-<N>-code-review-opus-X.X.md   # Claude Opus 输出
+└── 开发者-<N>-code-review-report.md     # 指挥官综合, 决策 P1/P2/P3 处置
 ```
 
 ---
 
-## HOW 怎么写
+## plan.md 结构
 
-> 任务 prompt 的 HOW 回答：**怎么验收**。通常包含流程、规范、raise 机制、report 格式。
+`验收者-<N>-plan.md` 是指挥官给验收者的任务定义:
 
-**流程**：告诉验收者按什么顺序工作。典型步骤：
-1. 读被验收 Actor 的 prompt（知道被要求做什么）
-2. 冷读被验收 Actor 的 report（知道实际做了什么）
-3. 冷读被验收 Actor 的 session JSONL（知道具体怎么做的——可选，report 信息不足时补充）
-4. 读相关源码或文件，用事实验证 report 中的声明
-5. 写验收报告
+```markdown
+# Round <N> 验收 — <被验收对象一句话>
 
-**规范**：告诉验收者哪些约束必须遵守。典型规范：
-- 只做验收，不做修改
-- 基于冷读——不依赖自己的记忆或上下文，一切以文件当前内容为准
-- 事实核查要有证据——引用具体文件路径、行号、代码片段
-- 不要把 compact 摘要当作被验收 Actor 的原话
+**工作量估**: ~Xh
+**装载船**: <ship-session UUID> 或 fresh (推荐 fresh, 避免上下文污染冷读)
 
-**raise 机制**：告诉验收者遇到超出验收范围的问题时怎么办（如发现架构缺陷、安全漏洞）——在 report 中标注为 raise 项，每项包含三要素：发现了什么（事实）、为什么验收范围处理不了（判断）、建议方向（建议，不是决策）。
+> 你是 R<N> 验收者 SubSession, 冷读 R<N> 开发者产出, 输出验收报告.
+> 只验收 / 不改 / 不决策, 发现问题写在 report.
 
-**report 格式**：告诉验收者交付的 report 应该长什么样。验收者 report 通常包含：每个验收点的结论（通过/有问题）+ 证据、总体判断（接受/需要修改/需要 raise）、raise 项（如有）。
+---
 
-**注意**：新 session 的第一个任务必须写 raise 机制和 report 格式。同 session 续跑的后续任务可以省略。
+## role
+验收者
 
-示例（好，新 session 第一个任务）：
-```
-### 流程
+## why
+### 起点
+开发者 R<N> 完成了 <一句话> (X/Y 测试通过). 涉及 <模块> 改动, 影响面 <大/中/小>. 需要冷读验证:
+- 代码是否对齐 plan / 设计文档
+- 测试覆盖是否充分
+- raise 项处置是否合理
+- 流程遵守 (commit / 注释规范 / report 6 节)
 
-1. 读开发者-18 的 prompt（知道被要求做什么）
-2. 冷读开发者-18 的 report（知道实际做了什么）
-3. 冷读开发者-18 的 session JSONL（知道具体怎么做的）
-4. 读 src/bt/types.ts、src/server.ts、test/ 目录，用事实验证 report 中的声明
-5. 写验收报告
+### 不相关历史排除
+不验收:
+- 历史 round 的代码 (R<N> 不改的)
+- 已 close 的 backlog
+
+## what
+### 验收点列表 (N 项)
+1. <验收点 1: 后端 IPC 是否按 plan 改> — 检查 `<file>:<line>` 是否实现 <预期>
+2. <验收点 2: 前端组件 props 是否对齐 plan>
+...
+**最后一条永远是 "流程遵守"**: commit 单 commit / report 6 节齐 / 注释规范 / raise 三要素 / SubSession session_id 写了
+
+### 通过判定
+- **通过**: 全部验收点 ✓ + 0 P1/P2 问题
+- **需修改**: P1/P2 问题数 > 0
+- **需 raise**: 验收范围之外的问题 (架构缺陷 / 安全漏洞)
+
+## how
+### 流程 4 步 (Iron Law Rule 4 + 5)
+
+1. **读 deps 必读** (开发者 plan + report + 设计文档 + CLAUDE.md)
+2. **拆验收点列表**. 不清的 raise (推荐, 但简单验收可跳直接 Step 4)
+3. **写** `验收者-<N>-raise.md` (前置浏览 + 三要素 raise: 验收点边界 / 通过标准), 等指挥官 reply
+4. **冷读验证 + 写** `验收者-<N>-report.md` (每验收点结论 + 证据 + 总体判断), 末尾 SubSession session_id
 
 ### 规范
+- **冷读**: 不依赖自己的记忆 / 上下文, 一切以**文件当前内容**为准
+- **基于事实**: 引用具体 `文件路径:行号` + 代码片段作为证据
+- **不模拟**: 不凭印象 "应该是这样" 生成结论, 必须 Read 文件确认
+- **不改任何东西**: 验收者只写 report, 不改代码 / 不改文档 / 不修任何文件
+- **compact 摘要识别**: 冷读 session JSONL 时, 检 `isCompactSummary: true` 防把摘要当原话 (见 [session-guide.md](session-guide.md) Part A)
 
-- 只做验收，不做修改
-- 引用具体文件路径和行号作为证据
-- 涉及文件内容判断时，用 Read 工具读文件当前版本
+### Raise 三要素
+每条 raise 含: **事实** (现状 / 验收点定义模糊在哪) / **判断** (验收范围处理不了 / 标准不清) / **建议** (a/b/c 选项).
 
-### raise 机制
+### Report 格式
+每个验收点:
+- 结论: ✓ 通过 / ⚠️ 有问题 / ❌ 失败
+- 证据: `<文件:行号>` + 实际代码片段 + (如有问题) 期望 vs 实际差异
+- 严重级 (有问题时): P1 / P2 / P3
 
-发现超出验收范围的问题，在 report 中标注为 raise 项，包含：
-- 发现了什么（事实）
-- 为什么验收范围处理不了（判断）
-- 建议的方向（建议，不是决策）
+总体判断: 接受 / 需修改 / 需 raise
 
-### report 格式
+末尾写 SubSession session_id + 装载船 UUID (如有).
 
-验收报告包含：每个验收点的结论（通过/有问题 + 证据）、总体判断（接受/需要修改/需要 raise）。
+### Raise N 场景 (供 SubSession 拆问)
+- §a 验收点边界模糊 (如 "测试覆盖充分" 怎么界定)
+- §b 通过标准不清 (如 P1/P2 严重级判定)
+- §c 验收点列表跟实际产出对不上 (开发者改了别的)
+...
+
+---
+
+## deps (强依赖, 必读)
+
+| 文件 | 用途 |
+|---|---|
+| `<path>/CLAUDE.md` | Iron Law (Rule 2 事实必有据) |
+| `<path>/round-<N>/开发者-<N>-plan.md` | 知道开发者被要求做什么 |
+| `<path>/round-<N>/开发者-<N>-report.md` | 知道开发者实际做了什么 (声明) |
+| `<path>/<design-doc>.md` | 判断实现是否对齐设计 |
+| `<path>/<related-source-files>` | 用事实验证 report 中的声明 |
+
+## optDeps (按需读)
+
+| 文件 | 用途 |
+|---|---|
+| `<path>/round-<N>/开发者-<N>-raise.md` + reply | 知道有哪些 raise 处置 |
+| `<path>/round-<N>/开发者-<N>-step4-proposal.md` + reply-step4 | 知道方案细节 |
+| 开发者 SubSession JSONL | report 信息不足时补充 (用 jsonl-guide 冷读) |
+
+---
+
+## 装载与验收
+
+### 装载船
+**推荐 fresh session, 不复用装载船**. 验收者本应不带 round 上下文, 只看文件。复用装载船 = 带历史认知 = 不是冷读。
+
+特殊情况: 单纯需要快速验收上一 round, 复用装载船但显式声明 "本次验收基于冷读, 不依赖船上记忆"。
+
+### 验收完成判定 (指挥官读 report 后)
+- [ ] 每验收点有结论 + 证据
+- [ ] 严重级标了 (有问题时 P1/P2/P3)
+- [ ] 总体判断 (接受 / 需修改 / 需 raise)
+- [ ] 末尾 SubSession session_id
+
+---
+
+## 启动指引 (主管复制粘贴一段贴给 SubSession)
+
 ```
+读 docs/design/round-<N>/验收者-<N>-plan.md 全文, 你是 R<N> 验收者 SubSession.
 
-示例（差）：
+冷读 R<N> 开发者产出 (代码 + report), 输出验收报告.
+
+你不带历史 round 上下文 (fresh session), 一切以文件当前内容为准.
+
+按 4 步流程:
+1. 读 deps 必读 (CLAUDE.md + 开发者-<N>-plan.md + 开发者-<N>-report.md + 设计文档 + 相关源码)
+2. 拆验收点列表. 简单验收可直接 Step 4. 不清场景 raise (§a 边界 / §b 标准 / §c 范围)
+3. (可选) 写 docs/design/round-<N>/验收者-<N>-raise.md, 等指挥官 reply
+4. 冷读验证每个验收点 (Read 文件确认, 不凭印象), 写 docs/design/round-<N>/验收者-<N>-report.md (每点结论 + 证据 + 严重级 + 总体判断), 末尾写 SubSession session_id
+
+规范:
+- 引用证据: 文件路径:行号 + 代码片段
+- 不改任何文件 (验收者只写 report)
+- compact 摘要识别 (检 isCompactSummary: true)
+- 不模拟验证 (必须 Read 文件)
+
+只验收 / 不改 / 不决策. 歧义 raise.
+
+开始 step 1 + step 2.
 ```
-读代码检查一下。
 ```
 
 ---
 
-## DEPS / OPTDEPS 怎么选
-> 任务的强依赖 / 任务的弱依赖
+## 4 步流程详解
 
-**deps（强依赖）**：不读就做不了验收。选择标准——如果 Actor 跳过这个文档，会在哪一步无法继续？
+### Step 1 — 读 deps
 
-**optDeps（弱依赖）**：按需查阅。选择标准——跳过也能完成验收，但某些场景下需要参考。
+验收者起手必读:
+- 开发者 plan.md (知道被要求做什么)
+- 开发者 report.md (知道开发者声称做了什么)
+- 设计文档 (判断实现是否对齐设计)
+- 相关源码 (用事实验证 report 声明)
+- (可选) 开发者 raise + reply (了解 raise 处置)
 
-验收者典型依赖：
+**冷读特别要求**: 不带历史 round 认知, 一切看文件。
 
-| 类型 | 文档 | 理由/场景 |
-|------|------|----------|
-| 强 | 项目工作模式 | 理解任务在项目中的位置 |
-| 强 | JSONL 操作手册 | 冷读 session JSONL 必备 |
-| 强 | 设计文档 | 判断实现是否对齐设计 |
-| 强 | 被验收 Actor 的 prompt | 知道验收对象被要求做什么 |
-| 强 | 被验收 Actor 的 report | 知道验收对象实际做了什么 |
+### Step 2 — 拆验收点列表
 
+按 plan.md 的 "验收点列表" 逐条:
+- 每点的边界清吗? (如"测试覆盖充分"具体啥意思?)
+- 通过判定明吗? (如 P1/P2/P3 怎么分?)
+- 验收点跟开发者实际产出对得上吗?
 
-示例：
-```json
-"deps": [
-  { "path": "work-patterns.md", "desc": "项目工作模式", "why": "理解任务在项目中的位置" },
-  { "path": "session-guide.md", "desc": "JSONL 操作手册", "why": "冷读 session JSONL 必备" },
-  { "path": "design.md", "desc": "设计文档", "why": "判断实现是否对齐设计" },
-  { "path": "开发者-18-prompt.md", "desc": "开发者任务定义", "why": "知道验收对象被要求做什么" },
-  { "path": "开发者-18-report.md", "desc": "开发者产出报告", "why": "知道验收对象实际做了什么" }
-]
-```
+### Step 3 — 写 raise.md (可选)
+
+简单验收 (验收点清晰 + 标准明确) 可跳过, 直接 Step 4。
+
+复杂验收写 raise.md, 三要素 (事实 / 判断 / 建议), 等指挥官 reply 后再 Step 4。
+
+### Step 4 — 冷读验证 + 写 report
+
+按验收点列表逐项:
+1. **Read 文件**, 确认开发者声明的代码改动是否真存在 (引用 `文件:行号`)
+2. **对比 plan**, 改的内容是否对齐 plan 要求
+3. **判定**: ✓ / ⚠️ / ❌
+4. **严重级** (问题时): P1 (安全 / 正确性) / P2 (代码质量 / UX) / P3 (风格 / 极端边界)
+
+最后写总体判断:
+- **接受**: 全 ✓ + 0 P1/P2
+- **需修改**: P1/P2 数 > 0
+- **需 raise**: 范围之外问题 (架构缺陷 / 安全漏洞)
+
+末尾写 SubSession session_id + 装载船 UUID (如有)。
 
 ---
 
-## 示例
+## 多 LLM 并行 code review (R64 增强)
 
-### 示例：验收重构产出
+`reviewer` 角色 (lightness 内部) 是**单 LLM 冷读** 验收。
 
-**背景**：开发者-18 完成了 task 快照集中存储的重构，需要验收。
+R64 推广**多 LLM 并行 review** — 同一 prompt 给多个 LLM (Codex / GPT-5.X / Opus / Sonnet), 各独立 review, 指挥官综合。
 
-```json
-{
-  "role": "验收者",
-  "why": "开发者-18 完成了 task 快照集中存储的重构（99/99 测试通过）。改动涉及 EngineContext 字段删除、server 存储路径变更、内存管理逻辑重写，影响面大。需要验收代码是否正确对齐设计文档，测试覆盖是否充分。",
-  "what": "逐项验收开发者-18 的重构产出：\n\n验收点：\n1. projectDir/taskDir 是否正确从 EngineContext 独立字段移入 task.meta\n2. 快照路径是否从 {taskDir}/.tasks/ 改为 ~/.aos/tasks/\n3. 完成后是否从内存清除，task.get 是否改为读文件\n4. 测试是否用 AOS_HOME 环境变量隔离\n5. 流程遵守：开发者是否按 prompt 要求的步骤执行，report 格式是否规范",
-  "how": "### 流程\n\n1. 读开发者-18 的 prompt（知道被要求做什么）\n2. 冷读开发者-18 的 report（知道实际做了什么）\n3. 冷读开发者-18 的 session JSONL（知道具体怎么做的）\n4. 读 src/bt/types.ts、src/server.ts、test/ 目录，用事实验证 report 中的声明\n5. 写验收报告\n\n### 规范\n\n- 只做验收，不做修改\n- 引用具体文件路径和行号作为证据\n\n### raise 机制\n\n发现超出验收范围的问题，在 report 中标注为 raise 项（事实 + 判断 + 建议）\n\n### report 格式\n\n每个验收点：结论（通过/有问题）+ 证据。总体判断：接受/需要修改/需要 raise。",
-  "deps": [
-    { "path": "work-patterns.md", "desc": "项目工作模式", "why": "理解任务在项目中的位置" },
-    { "path": "session-guide.md", "desc": "JSONL 操作手册", "why": "冷读 session JSONL 必备" },
-    { "path": "design.md", "desc": "设计文档", "why": "判断实现是否对齐设计" },
-    { "path": "开发者-18-prompt.md", "desc": "开发者任务定义", "why": "知道验收对象被要求做什么" },
-    { "path": "开发者-18-report.md", "desc": "开发者产出报告", "why": "知道验收对象实际做了什么" }
-  ]
-}
-```
+**何时用**:
+- 完成大 round (多文件 / 跨模块改动)
+- 关键合并前 (master / production branch)
+- 想要多角度独立第二意见 (避免单 LLM bias)
+
+**实战**: 一次大 round 用 5 LLM 并行 (codex-5.3 / gpt-5.2 / gpt-5.4 / gpt-5.5 / opus-4.7), 综合得到 30 个 P1/P2/P3 问题, 18 修 / 7 记 / 5 拒。
+
+完整流程见 [code-review-guide.md](code-review-guide.md)。
+
+---
+
+## 反模式
+
+❌ **带历史 round 上下文做"冷读"** — 复用装载船 + 不声明 → 不是真冷读, 容易漏 (因为已经"觉得这样合理")
+
+❌ **不 Read 文件, 凭 report 声明判定** — report 说"99/99 测试通过", 不实际跑 / 不实际看, 直接 ✓ → 漏掉 report 跟实际不一致的 case
+
+❌ **结论无证据** — "代码质量好" 没引用 → 没法验证 → 验收报告失去价值
+
+❌ **改文件** — 验收者只**指出问题**, 不**修问题**。修是开发者下一 round 的事
+
+❌ **跳过 "流程遵守" 检查** — 只看代码功能, 没检 commit 单 / report 6 节齐 / 注释规范 → 流程退化
+
+❌ **把 compact 摘要当开发者原话** — 检 `isCompactSummary: true` 字段, 见 [session-guide.md](session-guide.md) Part A
+
+❌ **单 LLM 大 round review** — 大 round 用单 LLM 漏率高, 推荐多 LLM 并行 + 综合
+
+---
+
+## 进一步资源
+
+- [04-multi-agent.md](04-multi-agent.md) — 多 Agent 协作总览
+- [agents/reviewer/ACTOR.md](../../agents/reviewer/ACTOR.md) — 验收者角色定义
+- [actor-guide-developer.md](actor-guide-developer.md) — R64 工作流总骨架 (开发者版, 5 步)
+- [actor-guide-researcher.md](actor-guide-researcher.md) — 研究员版 (4 步)
+- [code-review-guide.md](code-review-guide.md) — 多 LLM 并行 code review 实战 (Codex / GPT-5.X / Opus 等)
+- [session-guide.md](session-guide.md) — JSONL 冷读 (Part A: compact 摘要识别)
+- [handoff-writing.md](handoff-writing.md) — 跨 round / 跨 SubSession 交接

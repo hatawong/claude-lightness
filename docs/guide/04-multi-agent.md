@@ -172,10 +172,11 @@ Agent({
 ## 进一步资源
 
 - [agents/](../../agents/) — 5 个 ACTOR.md 完整模板
-- **指挥官给 Actor 写任务的指南** (按角色拆 3 份):
-  - [actor-guide-developer.md](actor-guide-developer.md) — 给开发者派 task 怎么写 (WHY / WHAT / HOW / DEPS)
-  - [actor-guide-researcher.md](actor-guide-researcher.md) — 给研究员派 task 怎么写
-  - [actor-guide-reviewer.md](actor-guide-reviewer.md) — 给验收者派 task 怎么写
-- [handoff-writing.md](handoff-writing.md) — Agent 之间 / session 之间交接文档怎么写 (源自一次实践复盘)
+- **指挥官给 Actor 写任务的指南 (R64 风格, 文件级异步通信)**:
+  - [actor-guide-developer.md](actor-guide-developer.md) — 给开发者派 task (5 步: deps → raise/reply → step4-proposal/reply → 实施 + report)
+  - [actor-guide-researcher.md](actor-guide-researcher.md) — 给研究员派 task (4 步, 无 proposal, 调研 → report)
+  - [actor-guide-reviewer.md](actor-guide-reviewer.md) — 给验收者派 task (4 步, 冷读验证 + 可选多 LLM 并行)
+- [code-review-guide.md](code-review-guide.md) — 多 LLM 并行 code review 实战 (Codex / GPT-5.X / Opus 等, 综合 P1/P2/P3 处置)
+- [handoff-writing.md](handoff-writing.md) — 跨 round / 跨 SubSession / 跨 Agent 交接文档怎么写
 - [docs/guide/02-claude-md.md](02-claude-md.md) — CLAUDE.md 写法 (与 ACTOR.md 是同源思路: 用 Iron Law 约束行为)
 - [Claude Code Subagents 官方文档](https://code.claude.com/docs/en/sub-agents)
